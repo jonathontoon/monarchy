@@ -1,0 +1,55 @@
+{
+  "size": "6x6",
+  "difficulty": "easy",
+  "puzzle_id": "4605673",
+  "puzzle": [
+    [
+      0,
+      null,
+      null,
+      0,
+      1,
+      1
+    ],
+    [
+      0,
+      null,
+      null,
+      null,
+      0,
+      null
+    ],
+    [
+      0,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      1,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      1,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      0,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  ]
+}
