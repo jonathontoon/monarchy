@@ -1,200 +1,201 @@
 #!/usr/bin/env python3
 """
-Scrape Binairo puzzle from puzzle-binairo.com
-Extracts: size, difficulty, puzzle ID, and puzzle grid
+Scrape Binairo puzzles from puzzle-binairo.com.
+
+The puzzle grid is encoded as a task string using run-length encoding:
+- Digits (0/1) are placed left→right, top→bottom
+- Letters (a-z) represent skips, where a=1, b=2, c=3, … z=26
 """
 
 import urllib.request
 import re
 import sys
-import base64
 import argparse
 import json
 import os
-from html.parser import HTMLParser
 
-# Available puzzle sizes and difficulties
 AVAILABLE_SIZES = [6, 8, 10, 14]
 AVAILABLE_DIFFICULTIES = ['easy', 'hard']
+BASE_URL = 'https://www.puzzle-binairo.com'
 
 
-
-
-
-def decode_task(task_str, size):
+def decode_task(task_str, width, height):
     """
-    Decode the task string from puzzle-binairo into a grid.
-    Task format: numbers (0 or 1) followed by column letters indicating runs.
-    e.g., '0b11h11e0b0a1h00' means:
-    - 0 in column a, then switch to column b (letter indicates column change)
-    - 11 in column b, then switch to column h
-    - etc.
-    
+    Decode binairo task string using run-length encoding.
+
+    The grid is scanned left→right, top→bottom (row-major order):
+    - Digits (0/1): place value, advance 1 cell
+    - Letters (a-z): skip N empty cells, where a=1, b=2, … z=26
+
     Args:
         task_str: The encoded task string
-        size: Grid size (e.g., 6 for 6x6)
-        
+        width: Grid width
+        height: Grid height
+
     Returns:
-        2D list representing the puzzle grid (None for empty cells)
+        2D list where None represents empty cells, 0/1 are clues
+
+    Raises:
+        ValueError: If task string is invalid or doesn't match grid size
     """
-    # Initialize empty grid
-    grid = [[None for _ in range(size)] for _ in range(size)]
-    
-    # Parse the task string
-    col_order = 'abcdefghijklmnopqrst'[:size]
-    current_col_idx = 0
-    row_counts = [0] * size
-    
-    i = 0
-    while i < len(task_str):
-        char = task_str[i]
-        
-        # Check if it's a column letter
-        if char in col_order:
-            current_col_idx = ord(char) - ord('a')
-        # Check if it's a digit (0 or 1)
-        elif char in '01':
-            value = int(char)
-            row = row_counts[current_col_idx]
-            if row < size:
-                grid[row][current_col_idx] = value
-                row_counts[current_col_idx] += 1
-        
-        i += 1
-    
-    return grid
+    total_cells = width * height
+    flat_grid = [None] * total_cells
+    pos = 0
+
+    for char in task_str:
+        if char in '01':
+            if pos >= total_cells:
+                raise ValueError(f"Task overruns grid at position {pos}")
+            flat_grid[pos] = int(char)
+            pos += 1
+        elif 'a' <= char <= 'z':
+            skip = ord(char) - ord('a') + 1
+            pos += skip
+            if pos > total_cells:
+                raise ValueError(f"Skip overruns grid at position {pos}")
+        else:
+            raise ValueError(f"Unexpected character in task: '{char}'")
+
+    if pos != total_cells:
+        raise ValueError(f"Task ended at position {pos}, expected {total_cells}")
+
+    # Convert flat grid to 2D
+    return [flat_grid[r * width:(r + 1) * width] for r in range(height)]
 
 
 def grid_to_string(grid):
-    """
-    Convert a grid to a readable string representation.
-    """
-    result = []
-    result.append("  " + " ".join(chr(ord('A') + i) for i in range(len(grid[0]))))
-    for i, row in enumerate(grid):
-        row_str = str(i + 1) + " "
-        row_str += " ".join(str(cell) if cell is not None else "." for cell in row)
-        result.append(row_str)
-    return "\n".join(result)
+    """Format grid for console display."""
+    lines = ["  " + " ".join(chr(ord('A') + i) for i in range(len(grid[0])))]
+    for i, row in enumerate(grid, 1):
+        cells = " ".join(str(cell) if cell is not None else "." for cell in row)
+        lines.append(f"{i} {cells}")
+    return "\n".join(lines)
 
 
 def scrape_binairo(url):
     """
-    Scrape puzzle information and data from a Binairo puzzle page.
-    
+    Scrape a Binairo puzzle from its URL.
+
     Args:
-        url: The URL of the puzzle page
-        
+        url: Full URL to the puzzle page
+
     Returns:
-        dict: Contains 'size', 'difficulty', 'puzzle_id', and 'puzzle' (grid)
+        dict with keys: size, difficulty, puzzle_id, puzzle (2D grid)
+        None if scraping fails
     """
+    # Fetch HTML
     try:
         with urllib.request.urlopen(url, timeout=10) as response:
-            html_content = response.read().decode('utf-8')
+            html = response.read().decode('utf-8')
     except Exception as e:
         print(f"Error fetching URL: {e}", file=sys.stderr)
         return None
-    
-    # Extract puzzle info from text content
-    match = re.search(r'(\d+)x(\d+)\s+(\w+)\s+Binairo.*?Puzzle\s+ID:\s*<span[^>]*>([^<]+)</span>', html_content, re.DOTALL)
-    
+
+    # Extract size and difficulty from URL
+    match = re.search(r'binairo-(\d+)x(\d+)-(\w+)', url)
     if not match:
-        print("Could not find puzzle information on page", file=sys.stderr)
+        print("Invalid puzzle URL format", file=sys.stderr)
         return None
-    
-    width, height, difficulty, puzzle_id = match.groups()
-    width, height = int(width), int(height)
-    puzzle_id = puzzle_id.replace(',', '')
-    
-    # Extract task string (puzzle encoding)
-    task_match = re.search(r"task = '([^']+)'", html_content)
-    puzzle_grid = None
-    if task_match:
-        task_str = task_match.group(1)
-        puzzle_grid = decode_task(task_str, width)
-    
+
+    size = int(match.group(1))
+    difficulty = match.group(3).lower()
+
+    # Extract puzzle ID
+    match = re.search(r'Puzzle ID:\s*<span[^>]*>([^<]+)</span>', html)
+    puzzle_id = match.group(1).replace(',', '') if match else None
+
+    # Extract and decode task string
+    match = re.search(r"task = '([^']+)'", html)
+    if not match:
+        print("Could not find puzzle data in HTML", file=sys.stderr)
+        return None
+
+    try:
+        puzzle = decode_task(match.group(1), size, size)
+    except ValueError as e:
+        print(f"Error decoding puzzle: {e}", file=sys.stderr)
+        return None
+
     return {
-        'size': f"{width}x{height}",
-        'difficulty': difficulty.lower(),
+        'size': f"{size}x{size}",
+        'difficulty': difficulty,
         'puzzle_id': puzzle_id,
-        'puzzle': puzzle_grid
+        'puzzle': puzzle,
     }
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Scrape Binairo puzzles from puzzle-binairo.com')
+def main():
+    """Parse arguments and scrape puzzle."""
+    parser = argparse.ArgumentParser(
+        description='Scrape Binairo puzzles from puzzle-binairo.com'
+    )
     parser.add_argument(
         '--size',
         type=int,
         default=6,
         choices=AVAILABLE_SIZES,
-        help=f'Puzzle size (default: 6). Available: {AVAILABLE_SIZES}'
+        help=f'Puzzle size (default: 6)',
     )
     parser.add_argument(
         '--difficulty',
         type=str,
         default='easy',
         choices=AVAILABLE_DIFFICULTIES,
-        help=f'Puzzle difficulty (default: easy). Available: {AVAILABLE_DIFFICULTIES}'
+        help=f'Puzzle difficulty (default: easy)',
     )
     parser.add_argument(
         '--no-grid',
         action='store_true',
-        help='Do not print the puzzle grid'
+        help='Do not print the puzzle grid',
     )
     parser.add_argument(
         '--list',
         action='store_true',
-        help='List all available puzzle sizes and difficulties'
+        help='List available puzzle sizes and difficulties',
     )
     parser.add_argument(
         '--output',
         type=str,
-        default=None,
-        help='Output file path for puzzle JSON (default: /puzzles/{size}x{size}.json)'
+        help='Output file for puzzle JSON',
     )
-    
+
     args = parser.parse_args()
-    
+
+    # Handle --list
     if args.list:
-        print("Available puzzle configurations:")
+        print("Available configurations:")
         for size in AVAILABLE_SIZES:
             for diff in AVAILABLE_DIFFICULTIES:
-                print(f"  {size}x{size} - {diff}")
-        sys.exit(0)
-    
-    # Set default output path based on size if not specified
-    if not args.output:
-        args.output = f'/puzzles/{args.size}x{args.size}.json'
-    
-    url = f'https://www.puzzle-binairo.com/binairo-{args.size}x{args.size}-{args.difficulty}/'
-    
+                print(f"  {size}x{size} {diff}")
+        return 0
+
+    # Set default output path
+    output_path = args.output or f'puzzles/{args.size}x{args.size}.json'
+
+    # Scrape puzzle
+    url = f'{BASE_URL}/binairo-{args.size}x{args.size}-{args.difficulty}/'
     puzzle_data = scrape_binairo(url)
-    
-    if puzzle_data:
-        print(f"Size: {puzzle_data['size']}")
-        print(f"Difficulty: {puzzle_data['difficulty']}")
-        print(f"Puzzle ID: {puzzle_data['puzzle_id']}")
-        
-        # Display grid if available
-        if puzzle_data['puzzle'] and not args.no_grid:
-            print("\nPuzzle Grid:")
-            print(grid_to_string(puzzle_data['puzzle']))
-        
-        # Save to file
-        if args.output:
-            output_dir = os.path.dirname(args.output)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
-            with open(args.output, 'w') as f:
-                json.dump({
-                    'size': puzzle_data['size'],
-                    'difficulty': puzzle_data['difficulty'],
-                    'puzzle_id': puzzle_data['puzzle_id'],
-                    'puzzle': puzzle_data['puzzle']
-                }, f, indent=2)
-            
-            print(f"Saved to: {args.output}")
-    else:
-        sys.exit(1)
+
+    if not puzzle_data:
+        return 1
+
+    # Print info
+    print(f"Size: {puzzle_data['size']}")
+    print(f"Difficulty: {puzzle_data['difficulty']}")
+    print(f"Puzzle ID: {puzzle_data['puzzle_id']}")
+
+    if puzzle_data['puzzle'] and not args.no_grid:
+        print("\nPuzzle Grid:")
+        print(grid_to_string(puzzle_data['puzzle']))
+
+    # Save to file
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    with open(output_path, 'w') as f:
+        json.dump(puzzle_data, f, indent=2)
+
+    print(f"\nSaved to: {output_path}")
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
