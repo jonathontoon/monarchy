@@ -219,18 +219,38 @@ def load_puzzles(pattern: str) -> List[Tuple[str, dict]]:
     return puzzles
 
 
-def rank_single_puzzle(file_path: str, show_details: bool = False) -> Optional[dict]:
-    """Rank a single puzzle file."""
+def rank_single_puzzle(file_path: str, puzzle_id: Optional[int] = None, show_details: bool = False) -> Optional[dict]:
+    """Rank a puzzle from file (handles both single objects and arrays)."""
     try:
         with open(file_path, 'r') as f:
-            puzzle_data = json.load(f)
+            data = json.load(f)
     except Exception as e:
         print(f"Error loading {file_path}: {e}", file=sys.stderr)
         return None
     
+    # Handle both old single-object and new array formats
+    if isinstance(data, dict):
+        puzzles = [data]
+    elif isinstance(data, list):
+        puzzles = data
+    else:
+        print(f"Error: Unexpected data format in {file_path}", file=sys.stderr)
+        return None
+    
+    # Select specific puzzle or first one
+    if puzzle_id:
+        puzzle_data = next((p for p in puzzles if p.get('id') == puzzle_id), None)
+        if not puzzle_data:
+            print(f"No puzzle found with ID {puzzle_id} in {file_path}", file=sys.stderr)
+            return None
+    else:
+        if len(puzzles) > 1 and show_details:
+            print(f"File contains {len(puzzles)} puzzles. Using first puzzle (ID: {puzzles[0].get('id', 'N/A')}).")
+        puzzle_data = puzzles[0]
+    
     puzzle_grid = puzzle_data.get('puzzle')
     if not puzzle_grid:
-        print(f"No puzzle grid in {file_path}", file=sys.stderr)
+        print(f"No puzzle grid in selected puzzle", file=sys.stderr)
         return None
     
     analyzer = TechniqueAnalyzer()
@@ -373,8 +393,10 @@ def main():
         print("No puzzles could be analyzed", file=sys.stderr)
         return 1
     
-    # Print summary
-    if len(analyses) > 1 and not args.detailed:
+    # Print summary for single puzzle if not already shown
+    if len(analyses) == 1 and not args.detailed:
+        print_detailed_analysis(analyses[0])
+    elif len(analyses) > 1 and not args.detailed:
         print_summary_table(analyses)
     
     # Show aggregate stats if analyzing multiple puzzles

@@ -1,255 +1,239 @@
 #!/usr/bin/env python3
 """
-Solve Binairo puzzles using human-readable logical techniques.
+Solve Binairo puzzles using constraint satisfaction and backtracking.
 
-This solver uses only techniques that humans would naturally employ:
-- Avoid Three Rule: Prevent three consecutive identical digits
-- Balance Rule: Ensure equal 0s and 1s in rows/columns
-- Duplicate Prevention: Prevent identical rows or columns
-- Forced Moves: Fill cells when only one option remains valid
+This solver uses a reliable algorithmic approach:
+- Constraint satisfaction with backtracking
+- Solution uniqueness verification
+- Fast constraint checking
+- No human-logic complexity
 
-No brute force or backtracking - only logical deduction.
+Guarantees finding the unique solution if one exists.
 """
 
 import json
 import sys
 import argparse
 import copy
-from typing import List, Optional, Tuple, Dict, Set
+import time
+from typing import List, Optional, Tuple
+
+
+class SolverMetrics:
+    """Track performance metrics during solving."""
+    
+    def __init__(self):
+        self.start_time = None
+        self.end_time = None
+        self.constraint_propagation_time = 0.0
+        self.backtracking_time = 0.0
+        self.backtrack_attempts = 0
+        self.forced_moves_found = 0
+        self.constraint_checks = 0
+        self.cell_placements = 0
+        
+    def start_solving(self):
+        """Mark start of solving process."""
+        self.start_time = time.perf_counter()
+    
+    def end_solving(self):
+        """Mark end of solving process."""
+        self.end_time = time.perf_counter()
+    
+    def get_total_time(self) -> float:
+        """Get total solving time in seconds."""
+        if self.start_time is None or self.end_time is None:
+            return 0.0
+        return self.end_time - self.start_time
+    
+    def format_summary(self) -> str:
+        """Format brief summary for always-visible display."""
+        total_time = self.get_total_time()
+        return f"Solved in {total_time:.3f}s with {self.backtrack_attempts:,} backtracking attempts"
+    
+    def format_metrics(self) -> str:
+        """Format detailed metrics for verbose display."""
+        total_time = self.get_total_time()
+        lines = [
+            f"Total solving time: {total_time:.3f}s",
+            f"├─ Constraint propagation: {self.constraint_propagation_time:.3f}s ({self.constraint_propagation_time/total_time*100:.1f}%)",
+            f"└─ Backtracking: {self.backtracking_time:.3f}s ({self.backtracking_time/total_time*100:.1f}%)",
+            f"Backtracking attempts: {self.backtrack_attempts:,}",
+            f"Forced moves found: {self.forced_moves_found}",
+            f"Constraint checks: {self.constraint_checks:,}",
+            f"Cell placements: {self.cell_placements}"
+        ]
+        return "\n".join(lines)
 
 
 class BinairoSolver:
     def __init__(self, puzzle: List[List[Optional[int]]]):
         self.grid = copy.deepcopy(puzzle)
         self.size = len(puzzle)
+        self.half_size = self.size // 2
         self.moves_log = []
-        self.techniques_used = set()
+        self.techniques_used = {"Algorithmic"}  # For compatibility with main.py
+        self.metrics = SolverMetrics()
         
-    def solve(self, show_steps: bool = False) -> Tuple[bool, List[str]]:
+    def solve(self, verbose: bool = False) -> Tuple[bool, List[str]]:
         """
-        Solve the puzzle using human techniques.
+        Solve the puzzle using constraint satisfaction and backtracking.
+        
+        Args:
+            verbose: Show detailed solving process (steps, metrics, techniques)
         
         Returns:
-            (solved, techniques_log)
+            (solved, moves_log)
         """
+        self.metrics.start_solving()
+        
+        if verbose:
+            print("Starting algorithmic solver...")
+            self.print_grid()
+        
+        # Find empty cells
+        empty_cells = []
+        for r in range(self.size):
+            for c in range(self.size):
+                if self.grid[r][c] is None:
+                    empty_cells.append((r, c))
+        
+        if not empty_cells:
+            # Already complete - check if valid
+            solved = self.is_valid()
+            return solved, self.moves_log
+        
+        if verbose:
+            print(f"Found {len(empty_cells)} empty cells to fill")
+        
+        # Apply initial constraint propagation
+        propagation_start = time.perf_counter()
         progress = True
-        iteration = 0
-        
-        while progress and not self.is_complete():
+        while progress:
             progress = False
-            iteration += 1
-            
-            if show_steps:
-                print(f"\n--- Iteration {iteration} ---")
-                self.print_grid()
-            
-            # Try each technique in order of complexity
-            if self._apply_avoid_three_rule(show_steps):
+            if self._apply_forced_moves(verbose):
                 progress = True
-            
-            if self._apply_balance_rule(show_steps):
-                progress = True
-                
-            if self._apply_duplicate_prevention(show_steps):
-                progress = True
-                
-            if self._apply_forced_moves(show_steps):
-                progress = True
+                # Update empty cells list
+                empty_cells = [(r, c) for r, c in empty_cells if self.grid[r][c] is None]
         
-        solved = self.is_complete() and self.is_valid()
-        return solved, self.moves_log
+        self.metrics.constraint_propagation_time += time.perf_counter() - propagation_start
+        
+        if not empty_cells:
+            # Solved by constraint propagation alone
+            self.metrics.end_solving()
+            solved = self.is_valid()
+            if verbose:
+                print(f"\nPerformance Metrics:")
+                print(self.metrics.format_metrics())
+            return solved, self.moves_log
+        
+        # Sort empty cells by constraint level (most constrained first)
+        empty_cells = self._sort_by_constraints(empty_cells)
+        
+        if verbose:
+            print(f"Applying backtracking to {len(empty_cells)} remaining cells")
+        
+        # Apply backtracking
+        original_grid = copy.deepcopy(self.grid)
+        backtrack_start = time.perf_counter()
+        solved = self._backtrack(empty_cells, 0, verbose)
+        self.metrics.backtracking_time += time.perf_counter() - backtrack_start
+        
+        self.metrics.end_solving()
+        
+        if solved and self.is_valid():
+            if verbose:
+                print(f"\nPerformance Metrics:")
+                print(self.metrics.format_metrics())
+            return True, self.moves_log
+        else:
+            self.grid = original_grid
+            if verbose:
+                print(f"\nPerformance Metrics (failed attempt):")
+                print(self.metrics.format_metrics())
+            return False, self.moves_log
     
-    def _apply_avoid_three_rule(self, show_steps: bool = False) -> bool:
-        """Prevent three consecutive identical digits."""
-        progress = False
-        
-        # Check rows
-        for r in range(self.size):
-            for c in range(self.size - 2):
-                if self._fill_avoid_three(r, c, r, c+1, r, c+2, "row", show_steps):
-                    progress = True
-        
-        # Check columns
-        for c in range(self.size):
-            for r in range(self.size - 2):
-                if self._fill_avoid_three(r, c, r+1, c, r+2, c, "column", show_steps):
-                    progress = True
-        
-        return progress
-    
-    def _fill_avoid_three(self, r1: int, c1: int, r2: int, c2: int, r3: int, c3: int, 
-                         direction: str, show_steps: bool) -> bool:
-        """Fill a cell to avoid three consecutive identical digits."""
-        cells = [(r1, c1), (r2, c2), (r3, c3)]
-        values = [self.grid[r][c] for r, c in cells]
-        
-        # Case 1: Two identical values at positions 0,1 -> fill position 2 with opposite
-        if values[0] is not None and values[1] is not None and values[2] is None:
-            if values[0] == values[1]:
-                fill_value = 1 - values[0]
-                return self._make_move(r3, c3, fill_value, f"Avoid three in {direction}", show_steps)
-        
-        # Case 2: Two identical values at positions 1,2 -> fill position 0 with opposite  
-        elif values[1] is not None and values[2] is not None and values[0] is None:
-            if values[1] == values[2]:
-                fill_value = 1 - values[1]
-                return self._make_move(r1, c1, fill_value, f"Avoid three in {direction}", show_steps)
-        
-        # Case 3: Two identical values at positions 0,2 -> fill position 1 with opposite
-        elif values[0] is not None and values[2] is not None and values[1] is None:
-            if values[0] == values[2]:
-                fill_value = 1 - values[0]
-                return self._make_move(r2, c2, fill_value, f"Avoid three in {direction}", show_steps)
-        
-        return False
-    
-    def _apply_balance_rule(self, show_steps: bool = False) -> bool:
-        """Fill remaining cells when a row/column has enough of one digit."""
-        progress = False
-        half_size = self.size // 2
-        
-        # Check rows
-        for r in range(self.size):
-            count_0 = sum(1 for c in range(self.size) if self.grid[r][c] == 0)
-            count_1 = sum(1 for c in range(self.size) if self.grid[r][c] == 1)
-            
-            if count_0 == half_size:
-                # Fill remaining with 1s
-                for c in range(self.size):
-                    if self.grid[r][c] is None:
-                        if self._make_move(r, c, 1, "Balance rule (row needs 1s)", show_steps):
-                            progress = True
-            elif count_1 == half_size:
-                # Fill remaining with 0s
-                for c in range(self.size):
-                    if self.grid[r][c] is None:
-                        if self._make_move(r, c, 0, "Balance rule (row needs 0s)", show_steps):
-                            progress = True
-        
-        # Check columns
-        for c in range(self.size):
-            count_0 = sum(1 for r in range(self.size) if self.grid[r][c] == 0)
-            count_1 = sum(1 for r in range(self.size) if self.grid[r][c] == 1)
-            
-            if count_0 == half_size:
-                # Fill remaining with 1s
-                for r in range(self.size):
-                    if self.grid[r][c] is None:
-                        if self._make_move(r, c, 1, "Balance rule (column needs 1s)", show_steps):
-                            progress = True
-            elif count_1 == half_size:
-                # Fill remaining with 0s
-                for r in range(self.size):
-                    if self.grid[r][c] is None:
-                        if self._make_move(r, c, 0, "Balance rule (column needs 0s)", show_steps):
-                            progress = True
-        
-        return progress
-    
-    def _apply_duplicate_prevention(self, show_steps: bool = False) -> bool:
-        """Prevent duplicate rows or columns."""
-        progress = False
-        
-        # Check for potential duplicate rows
-        for r1 in range(self.size):
-            for r2 in range(r1 + 1, self.size):
-                if self._prevent_duplicate_rows(r1, r2, show_steps):
-                    progress = True
-        
-        # Check for potential duplicate columns
-        for c1 in range(self.size):
-            for c2 in range(c1 + 1, self.size):
-                if self._prevent_duplicate_columns(c1, c2, show_steps):
-                    progress = True
-        
-        return progress
-    
-    def _prevent_duplicate_rows(self, r1: int, r2: int, show_steps: bool) -> bool:
-        """Prevent two rows from being identical."""
-        row1 = self.grid[r1]
-        row2 = self.grid[r2]
-        
-        # Find positions where rows differ
-        diff_positions = []
-        none_positions_r1 = []
-        none_positions_r2 = []
-        
-        for c in range(self.size):
-            if row1[c] is None and row2[c] is None:
-                continue
-            elif row1[c] is None:
-                none_positions_r1.append(c)
-            elif row2[c] is None:
-                none_positions_r2.append(c)
-            elif row1[c] != row2[c]:
-                diff_positions.append(c)
-        
-        # If rows are identical except for one None in each, fill them differently
-        if len(diff_positions) == 0 and len(none_positions_r1) == 1 and len(none_positions_r2) == 1:
-            c1, c2 = none_positions_r1[0], none_positions_r2[0]
-            # Try filling with opposites
-            for val in [0, 1]:
-                if (self._is_valid_placement(r1, c1, val) and 
-                    self._is_valid_placement(r2, c2, 1-val)):
-                    self._make_move(r1, c1, val, f"Prevent duplicate rows {r1+1},{r2+1}", show_steps)
-                    self._make_move(r2, c2, 1-val, f"Prevent duplicate rows {r1+1},{r2+1}", show_steps)
-                    return True
-        
-        return False
-    
-    def _prevent_duplicate_columns(self, c1: int, c2: int, show_steps: bool) -> bool:
-        """Prevent two columns from being identical."""
-        col1 = [self.grid[r][c1] for r in range(self.size)]
-        col2 = [self.grid[r][c2] for r in range(self.size)]
-        
-        # Find positions where columns differ
-        diff_positions = []
-        none_positions_c1 = []
-        none_positions_c2 = []
-        
-        for r in range(self.size):
-            if col1[r] is None and col2[r] is None:
-                continue
-            elif col1[r] is None:
-                none_positions_c1.append(r)
-            elif col2[r] is None:
-                none_positions_c2.append(r)
-            elif col1[r] != col2[r]:
-                diff_positions.append(r)
-        
-        # If columns are identical except for one None in each, fill them differently
-        if len(diff_positions) == 0 and len(none_positions_c1) == 1 and len(none_positions_c2) == 1:
-            r1, r2 = none_positions_c1[0], none_positions_c2[0]
-            # Try filling with opposites
-            for val in [0, 1]:
-                if (self._is_valid_placement(r1, c1, val) and 
-                    self._is_valid_placement(r2, c2, 1-val)):
-                    self._make_move(r1, c1, val, f"Prevent duplicate columns {c1+1},{c2+1}", show_steps)
-                    self._make_move(r2, c2, 1-val, f"Prevent duplicate columns {c1+1},{c2+1}", show_steps)
-                    return True
-        
-        return False
-    
-    def _apply_forced_moves(self, show_steps: bool = False) -> bool:
-        """Fill cells where only one value is valid."""
+    def _apply_forced_moves(self, verbose: bool = False) -> bool:
+        """Apply constraint propagation to find forced moves."""
         progress = False
         
         for r in range(self.size):
             for c in range(self.size):
-                if self.grid[r][c] is None:
-                    valid_values = []
-                    for val in [0, 1]:
-                        if self._is_valid_placement(r, c, val):
-                            valid_values.append(val)
-                    
-                    if len(valid_values) == 1:
-                        if self._make_move(r, c, valid_values[0], "Forced move (only valid option)", show_steps):
-                            progress = True
+                if self.grid[r][c] is not None:
+                    continue
+                
+                valid_values = []
+                for val in [0, 1]:
+                    if self._is_valid_placement(r, c, val):
+                        valid_values.append(val)
+                
+                if len(valid_values) == 1:
+                    # Forced move
+                    val = valid_values[0]
+                    self.grid[r][c] = val
+                    self.moves_log.append(f"Set ({chr(65+c)},{r+1}) = {val} [Forced by constraints]")
+                    self.metrics.forced_moves_found += 1
+                    self.metrics.cell_placements += 1
+                    if verbose:
+                        print(f"  Forced: ({chr(65+c)},{r+1}) = {val}")
+                    progress = True
+                elif len(valid_values) == 0:
+                    # Invalid state - no valid values
+                    return False
         
         return progress
     
+    def _sort_by_constraints(self, empty_cells: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Sort empty cells by constraint level (most constrained first)."""
+        def constraint_count(cell):
+            r, c = cell
+            valid_count = 0
+            for val in [0, 1]:
+                if self._is_valid_placement(r, c, val):
+                    valid_count += 1
+            return valid_count
+        
+        return sorted(empty_cells, key=constraint_count)
+    
+    def _backtrack(self, empty_cells: List[Tuple[int, int]], index: int, verbose: bool = False) -> bool:
+        """Recursive backtracking solver."""
+        self.metrics.backtrack_attempts += 1
+        
+        if index >= len(empty_cells):
+            # All cells filled - check validity
+            return self.is_valid()
+        
+        r, c = empty_cells[index]
+        
+        # Try both values
+        for val in [0, 1]:
+            if self._is_valid_placement(r, c, val):
+                # Place value
+                self.grid[r][c] = val
+                self.moves_log.append(f"Set ({chr(65+c)},{r+1}) = {val} [Backtrack {index+1}/{len(empty_cells)}]")
+                self.metrics.cell_placements += 1
+                
+                if verbose and index < 10:  # Limit output for deep recursion
+                    print(f"    Try: ({chr(65+c)},{r+1}) = {val}")
+                
+                # Recurse
+                if self._backtrack(empty_cells, index + 1, verbose):
+                    return True
+                
+                # Backtrack
+                self.grid[r][c] = None
+                if self.moves_log and self.moves_log[-1].startswith(f"Set ({chr(65+c)},{r+1}) = {val}"):
+                    self.moves_log.pop()
+                
+                if verbose and index < 10:
+                    print(f"    Backtrack: ({chr(65+c)},{r+1})")
+        
+        return False
+    
     def _is_valid_placement(self, r: int, c: int, value: int) -> bool:
         """Check if placing a value at position (r,c) is valid."""
+        self.metrics.constraint_checks += 1
+        
         # Temporarily place the value
         original = self.grid[r][c]
         self.grid[r][c] = value
@@ -257,11 +241,12 @@ class BinairoSolver:
         valid = True
         
         # Check no three consecutive in row
-        for start_c in range(max(0, c-2), min(self.size-2, c+1)):
-            if (self.grid[r][start_c] is not None and 
-                self.grid[r][start_c] == self.grid[r][start_c+1] == self.grid[r][start_c+2]):
-                valid = False
-                break
+        if valid:
+            for start_c in range(max(0, c-2), min(self.size-2, c+1)):
+                if (self.grid[r][start_c] is not None and 
+                    self.grid[r][start_c] == self.grid[r][start_c+1] == self.grid[r][start_c+2]):
+                    valid = False
+                    break
         
         # Check no three consecutive in column
         if valid:
@@ -273,31 +258,15 @@ class BinairoSolver:
         
         # Check balance doesn't exceed half
         if valid:
-            half_size = self.size // 2
             row_count = sum(1 for col in range(self.size) if self.grid[r][col] == value)
             col_count = sum(1 for row in range(self.size) if self.grid[row][c] == value)
             
-            if row_count > half_size or col_count > half_size:
+            if row_count > self.half_size or col_count > self.half_size:
                 valid = False
         
         # Restore original value
         self.grid[r][c] = original
         return valid
-    
-    def _make_move(self, r: int, c: int, value: int, technique: str, show_steps: bool) -> bool:
-        """Make a move and log it."""
-        if self.grid[r][c] is not None:
-            return False
-        
-        self.grid[r][c] = value
-        move_desc = f"Set ({chr(65+c)},{r+1}) = {value} [{technique}]"
-        self.moves_log.append(move_desc)
-        self.techniques_used.add(technique.split()[0])  # First word of technique
-        
-        if show_steps:
-            print(f"  {move_desc}")
-        
-        return True
     
     def is_complete(self) -> bool:
         """Check if puzzle is completely filled."""
@@ -308,13 +277,14 @@ class BinairoSolver:
         return True
     
     def is_valid(self) -> bool:
-        """Check if current state is valid."""
-        half_size = self.size // 2
+        """Check if current state is valid and complete."""
+        if not self.is_complete():
+            return False
         
         # Check rows
         for r in range(self.size):
             row = self.grid[r]
-            if row.count(0) != half_size or row.count(1) != half_size:
+            if row.count(0) != self.half_size or row.count(1) != self.half_size:
                 return False
             
             # Check no three consecutive
@@ -325,7 +295,7 @@ class BinairoSolver:
         # Check columns
         for c in range(self.size):
             col = [self.grid[r][c] for r in range(self.size)]
-            if col.count(0) != half_size or col.count(1) != half_size:
+            if col.count(0) != self.half_size or col.count(1) != self.half_size:
                 return False
             
             # Check no three consecutive
@@ -349,6 +319,50 @@ class BinairoSolver:
         
         return True
     
+    def count_solutions(self, max_count: int = 2) -> int:
+        """Count the number of solutions. Returns 0, 1, or max_count."""
+        empty_cells = []
+        for r in range(self.size):
+            for c in range(self.size):
+                if self.grid[r][c] is None:
+                    empty_cells.append((r, c))
+        
+        if not empty_cells:
+            return 1 if self.is_valid() else 0
+        
+        # Sort by constraints for efficiency
+        empty_cells = self._sort_by_constraints(empty_cells)
+        
+        original_grid = copy.deepcopy(self.grid)
+        solutions = self._count_solutions_recursive(empty_cells, 0, max_count)
+        self.grid = original_grid
+        
+        return solutions
+    
+    def _count_solutions_recursive(self, empty_cells: List[Tuple[int, int]], index: int, max_count: int) -> int:
+        """Recursive solution counter."""
+        if index >= len(empty_cells):
+            return 1 if self.is_valid() else 0
+        
+        r, c = empty_cells[index]
+        solution_count = 0
+        
+        for val in [0, 1]:
+            if self._is_valid_placement(r, c, val):
+                self.grid[r][c] = val
+                
+                count = self._count_solutions_recursive(empty_cells, index + 1, max_count)
+                solution_count += count
+                
+                # Early termination if we've found enough solutions
+                if solution_count >= max_count:
+                    self.grid[r][c] = None
+                    return max_count
+                
+                self.grid[r][c] = None
+        
+        return solution_count
+    
     def print_grid(self):
         """Print current grid state."""
         print("  " + " ".join(chr(ord('A') + i) for i in range(self.size)))
@@ -357,46 +371,68 @@ class BinairoSolver:
             print(f"{i} {cells}")
 
 
-def load_puzzle(file_path: str) -> dict:
-    """Load puzzle from JSON file."""
+def load_puzzles(file_path: str) -> list:
+    """Load puzzle(s) from JSON file. Handles both single objects and arrays."""
     try:
         with open(file_path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            # Handle both old single-object and new array formats
+            if isinstance(data, dict):
+                return [data]  # Convert single object to array
+            elif isinstance(data, list):
+                return data
+            else:
+                print(f"Error: Unexpected data format in {file_path}", file=sys.stderr)
+                return []
     except Exception as e:
         print(f"Error loading puzzle: {e}", file=sys.stderr)
-        return None
+        return []
 
 
 def main():
     """Parse arguments and solve puzzle."""
     parser = argparse.ArgumentParser(
-        description='Solve Binairo puzzles using human logical techniques'
+        description='Solve Binairo puzzles using constraint satisfaction and backtracking'
     )
     parser.add_argument(
         'puzzle_file',
-        help='Path to puzzle JSON file'
+        help='Path to puzzle JSON file (can contain single puzzle or array)'
     )
     parser.add_argument(
-        '--show-steps',
-        action='store_true',
-        help='Show step-by-step solving process'
+        '--puzzle-id',
+        type=int,
+        help='Specific puzzle ID to solve (if file contains multiple puzzles)'
     )
     parser.add_argument(
-        '--show-techniques',
+        '--verbose',
         action='store_true',
-        help='Show techniques used in solving'
+        help='Show detailed output: step-by-step solving, performance metrics, and techniques used'
     )
     
     args = parser.parse_args()
     
-    # Load puzzle
-    puzzle_data = load_puzzle(args.puzzle_file)
-    if not puzzle_data:
+    # Load puzzles
+    puzzles = load_puzzles(args.puzzle_file)
+    if not puzzles:
         return 1
+    
+    # Select specific puzzle or first one
+    if args.puzzle_id:
+        puzzle_data = next((p for p in puzzles if p.get('id') == args.puzzle_id), None)
+        if not puzzle_data:
+            print(f"No puzzle found with ID {args.puzzle_id}", file=sys.stderr)
+            available_ids = [p.get('id', 'N/A') for p in puzzles]
+            print(f"Available IDs: {available_ids}", file=sys.stderr)
+            return 1
+    else:
+        if len(puzzles) > 1:
+            print(f"File contains {len(puzzles)} puzzles. Using first puzzle (ID: {puzzles[0].get('id', 'N/A')}).")
+            print(f"Use --puzzle-id to select a specific puzzle.")
+        puzzle_data = puzzles[0]
     
     puzzle_grid = puzzle_data.get('puzzle')
     if not puzzle_grid:
-        print("No puzzle grid found in file", file=sys.stderr)
+        print("No puzzle grid found in selected puzzle", file=sys.stderr)
         return 1
     
     # Print initial info
@@ -409,29 +445,46 @@ def main():
     solver = BinairoSolver(puzzle_grid)
     solver.print_grid()
     
+    # Always verify solution uniqueness
+    print("\nVerifying solution uniqueness...")
+    solution_count = solver.count_solutions(3)
+    if solution_count == 0:
+        print("❌ No solutions exist")
+        return 1
+    elif solution_count == 1:
+        print("✓ Exactly one solution exists")
+    elif solution_count >= 2:
+        print(f"⚠️  Multiple solutions exist (found at least {solution_count})")
+        return 1
+    print()
+    
+    # Set verbose mode
+    verbose = args.verbose
+    
     # Solve
-    print(f"\nSolving using human techniques...")
-    solved, moves_log = solver.solve(args.show_steps)
+    print(f"Solving using constraint satisfaction...")
+    solved, moves_log = solver.solve(verbose)
     
     if solved:
         print(f"\n✓ Puzzle solved successfully!")
+        print(solver.metrics.format_summary())
         print(f"\nFinal Grid:")
         solver.print_grid()
         
-        if args.show_techniques:
-            print(f"\nTechniques used: {', '.join(sorted(solver.techniques_used))}")
+        if verbose:
+            print(f"\nAlgorithm: Constraint satisfaction with backtracking")
             print(f"Total moves: {len(moves_log)}")
+            print(f"Techniques used: {', '.join(solver.techniques_used)}")
             
-            if not args.show_steps:
-                print(f"\nMove sequence:")
-                for i, move in enumerate(moves_log, 1):
-                    print(f"  {i:2}. {move}")
+            print(f"\nMove sequence:")
+            for i, move in enumerate(moves_log, 1):
+                print(f"  {i:2}. {move}")
     else:
-        print(f"\n✗ Could not solve puzzle using human techniques alone")
-        print(f"Partial solution:")
+        print(f"\n✗ Could not solve puzzle")
+        print(f"Final state:")
         solver.print_grid()
         
-        if moves_log:
+        if verbose and moves_log:
             print(f"\nProgress made ({len(moves_log)} moves):")
             for move in moves_log[-5:]:  # Show last 5 moves
                 print(f"  {move}")

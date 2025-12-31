@@ -86,11 +86,25 @@ class PuzzleValidator:
         
         return result
     
-    def _validate_structure(self, data: dict, result: dict, strict: bool):
+    def _validate_structure(self, data, result: dict, strict: bool):
         """Validate JSON structure and required fields."""
-        if not isinstance(data, dict):
+        # Handle both single object and array formats
+        if isinstance(data, list):
+            if len(data) == 0:
+                result['valid'] = False
+                result['errors'].append("Empty puzzle array")
+                return
+            # Validate each puzzle in the array
+            for i, puzzle in enumerate(data):
+                if not isinstance(puzzle, dict):
+                    result['valid'] = False
+                    result['errors'].append(f"Puzzle {i} is not an object")
+                    return
+            # For array format, validate just the first puzzle for structure
+            data = data[0]
+        elif not isinstance(data, dict):
             result['valid'] = False
-            result['errors'].append("Root element must be an object")
+            result['errors'].append("Root element must be an object or array")
             return
         
         # Check required fields
