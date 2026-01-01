@@ -10,12 +10,27 @@ Monarchy is a Binairo puzzle repository that contains tools for scraping and sto
 
 - **puzzles/** - Contains JSON files with puzzle data and metadata
 - **scripts/** - Utility scripts for puzzle operations
+  - `main.py` - Unified workflow script for complete puzzle acquisition process
   - `scrape.py` - Main scraping tool for downloading puzzles from puzzle-binairo.com
-  - `solve.py` - Human-technique puzzle solver using logical deduction
-  - `rank.py` - Human-difficulty ranking system based on cognitive complexity
+  - `solve.py` - Algorithmic puzzle solver for validation
   - `validate.py` - Comprehensive puzzle file validator with mandatory ID enforcement
 
 ## Development Commands
+
+### Unified Workflow
+```bash
+# Run complete workflow (scrape → solve → add to file → validate)
+python3 scripts/main.py
+
+# Specific size and difficulty
+python3 scripts/main.py --size 8 --difficulty hard
+
+# Add multiple puzzles
+python3 scripts/main.py --count 3
+
+# Verbose output showing all steps
+python3 scripts/main.py --verbose
+```
 
 ### Running the Scraper
 ```bash
@@ -37,29 +52,11 @@ python3 scripts/scrape.py --help
 
 ### Solving Puzzles
 ```bash
-# Solve a puzzle using human techniques
+# Solve a puzzle algorithmically
 python3 scripts/solve.py puzzles/6x6.json
 
 # Show step-by-step solving process
 python3 scripts/solve.py --show-steps puzzles/6x6.json
-
-# Show which techniques were used
-python3 scripts/solve.py --show-techniques puzzles/6x6.json
-```
-
-### Ranking Puzzle Difficulty
-```bash
-# Rank a single puzzle's human difficulty
-python3 scripts/rank.py puzzles/6x6.json
-
-# Rank multiple puzzles with detailed analysis
-python3 scripts/rank.py --detailed puzzles/*.json
-
-# Export ranking results to CSV
-python3 scripts/rank.py --export-csv results.csv puzzles/*.json
-
-# Show technique usage breakdown
-python3 scripts/rank.py --technique-breakdown puzzles/*.json
 ```
 
 ### Validating Puzzles
@@ -105,29 +102,23 @@ The scraper (`scripts/scrape.py`) implements:
 - **Error Handling**: Validates puzzle data and provides meaningful error messages
 - **Flexible Output**: Supports custom file paths and console display options
 
-### Human-Technique Analysis System
-The solving and ranking tools focus on human-cognitive approaches:
+### Solving and Validation System
+The solving and validation tools ensure puzzle integrity:
 
-**Solving Techniques** (`scripts/solve.py`):
-- **Avoid Three Rule**: Prevent three consecutive identical digits
-- **Balance Rule**: Ensure equal 0s and 1s in rows/columns
-- **Duplicate Prevention**: Prevent identical rows or columns
-- **Forced Moves**: Fill cells when only one value is valid
-
-**Difficulty Ranking** (`scripts/rank.py`):
-- **Technique Complexity**: Weights techniques by cognitive difficulty
-- **Advanced Usage**: Measures reliance on complex pattern recognition
-- **Interaction Complexity**: Analyzes how techniques combine during solving
-- **Human Difficulty Scale**: 1-10 scoring based on cognitive load, not computation
+**Solving Engine** (`scripts/solve.py`):
+- **Algorithmic Solver**: Uses backtracking and constraint propagation
+- **Rule Enforcement**: Ensures no three consecutive identical digits
+- **Balance Checking**: Verifies equal 0s and 1s in rows/columns
+- **Uniqueness Validation**: Prevents duplicate rows or columns
 
 **Validation System** (`scripts/validate.py`):
 - **Structure Validation**: JSON format and required field checking
 - **ID Enforcement**: Mandatory numeric `id` field for all puzzles
-- **Solvability Testing**: Ensures puzzles are solvable with human techniques
+- **Solvability Testing**: Ensures puzzles are solvable and have unique solutions
 - **Duplicate Detection**: Identifies identical puzzle content across files
 
 ### Available Puzzle Configurations
-- Sizes: 6x6, 8x8, 10x10, 14x14
+- Sizes: 6x6, 8x8, 10x10
 - Difficulties: easy, hard
 - Source: puzzle-binairo.com
 

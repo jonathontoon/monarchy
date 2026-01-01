@@ -25,12 +25,11 @@ Monarchy is a Binairo puzzle scraper and solver. It contains:
 - **Check puzzle IDs**: `python3 scripts/validate.py puzzles/*.json --check-ids`
 - **Find duplicates**: `python3 scripts/validate.py puzzles/*.json --check-duplicates`
 
-### Ranking
-- **Rank puzzle difficulty**: `python3 scripts/rank.py puzzles/6x6.json`
-- **Detailed analysis**: `python3 scripts/rank.py puzzles/6x6.json --detailed`
-- **Analyze multiple**: `python3 scripts/rank.py puzzles/*.json --detailed`
-- **Export results to CSV**: `python3 scripts/rank.py puzzles/*.json --export-csv results.csv`
-- **Show technique breakdown**: `python3 scripts/rank.py puzzles/*.json --technique-breakdown`
+### Unified Workflow
+- **Run complete workflow**: `python3 scripts/main.py`
+- **Specific size/difficulty**: `python3 scripts/main.py --size 8 --difficulty hard`
+- **Multiple puzzles**: `python3 scripts/main.py --count 3`
+- **Show workflow steps**: `python3 scripts/main.py --verbose`
 
 ## Python Code Style
 - Python 3 with docstrings (Google style) for all functions and modules
@@ -76,12 +75,13 @@ Validates puzzle file integrity and correctness.
 - Tests solvability using human techniques
 - Supports batch validation with summary reports
 
-### rank.py
-Ranks puzzle difficulty based on human-solving complexity.
-- Assigns difficulty scores 1-10 based on human cognitive complexity
-- Analyzes technique variety, sequence, and interaction
-- Supports single and batch analysis with CSV export
-- Provides human-readable analysis summaries
+### main.py
+Unified workflow script that combines all operations:
+- Scrapes a puzzle from puzzle-binairo.com
+- Verifies it's solvable and has a unique solution
+- Adds it to the appropriate size-based puzzle file
+- Validates the updated file
+- Streamlines the complete puzzle acquisition process
 
 ## Encoding Details
 Puzzle task strings use run-length encoding:

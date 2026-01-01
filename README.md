@@ -5,27 +5,27 @@ A Binairo puzzle scraper and solver. Monarchy downloads puzzles from puzzle-bina
 ## Quick Start
 
 ```bash
-# Scrape a 6x6 easy puzzle
+# Complete workflow: scrape → solve → add to file → validate
+python3 scripts/main.py --size 6 --difficulty easy
+
+# Or manually scrape a puzzle
 python3 scripts/scrape.py --size 6 --difficulty easy --output puzzles/6x6.json
 
-# Solve it
-python3 scripts/solve.py puzzles/6x6.json --show-techniques
+# Solve it with detailed steps
+python3 scripts/solve.py puzzles/6x6.json --show-steps
 
 # Validate your puzzles
 python3 scripts/validate.py puzzles/*.json --batch
-
-# Rank difficulty
-python3 scripts/rank.py puzzles/*.json --detailed
 ```
 
 ## Project Structure
 
 - **puzzles/** - Puzzle files (JSON format)
 - **scripts/** - Utility scripts:
+  - `main.py` - Unified workflow for complete puzzle acquisition
   - `scrape.py` - Download puzzles from puzzle-binairo.com
   - `solve.py` - Solve puzzles using human techniques
   - `validate.py` - Validate puzzle integrity and correctness
-  - `rank.py` - Analyze and rank puzzle difficulty
 
 ## Solving Techniques
 
